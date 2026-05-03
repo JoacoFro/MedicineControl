@@ -3,7 +3,10 @@ v_env/
 env/
 venv/
 
-# Base de datos local (No se sube porque cada uno usa la suya)
+# Secretos y Configuración (¡FUNDAMENTAL!)
+.env
+
+# Base de datos local
 db.sqlite3
 
 # Archivos temporales de Python
