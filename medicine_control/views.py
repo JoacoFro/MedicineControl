@@ -271,7 +271,7 @@ def cron_monitoreo_sistema(request):
         for i in insumos:
             # Revisá si estos nombres de campos se llaman exactamente así en tu models.py
             if (i.stock_actual_cajas * 30) <= 30:
-                alertas.append(f"📦 *O.S: Te queda {i.stock_actual_cajas} caja de {i.nombre} del stock base.")
+                alertas.append(f"📦 *O.S*: Te queda {i.stock_actual_cajas} caja de {i.nombre} del stock base.")
             if i.backup_unidades <= 56:
                 alertas.append(f"🛡️ *Seguridad: Te queda* {i.nombre} tiene solo {i.backup_unidades} un. de backup.")
             if i.autonomia_smart <= 10:
