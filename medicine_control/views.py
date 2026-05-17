@@ -273,7 +273,7 @@ def cron_monitoreo_sistema(request):
             if (i.stock_actual_cajas * 30) <= 30:
                 alertas.append(f"📦 *O.S*: Te queda {i.stock_actual_cajas} caja de {i.nombre} del stock base.")
             if i.backup_unidades <= 56:
-                alertas.append(f"🛡️ *Seguridad: Te queda* {i.nombre} tiene solo {i.backup_unidades} un. de backup.")
+                alertas.append(f"🛡️ *Seguridad:* {i.nombre} tiene solo {i.backup_unidades} un. de backup.")
             if i.autonomia_smart <= 10:
                 alertas.append(f"🚨 *Crítico:* {i.nombre} con autonomía de {i.autonomia_smart} días.")
 
