@@ -271,9 +271,9 @@ def cron_monitoreo_sistema(request):
         for i in insumos:
             # Revisá si estos nombres de campos se llaman exactamente así en tu models.py
             if (i.stock_actual_cajas * 30) <= 30:
-                alertas.append(f"📦 *Stock Normal:* Queda {i.stock_actual_cajas} caja de {i.nombre}.")
+                alertas.append(f"📦 *O.S: Te queda {i.stock_actual_cajas} caja de {i.nombre} del stock base.")
             if i.backup_unidades <= 56:
-                alertas.append(f"🛡️ *Seguridad:* {i.nombre} tiene solo {i.backup_unidades} un. de backup.")
+                alertas.append(f"🛡️ *Seguridad: Te queda* {i.nombre} tiene solo {i.backup_unidades} un. de backup.")
             if i.autonomia_smart <= 10:
                 alertas.append(f"🚨 *Crítico:* {i.nombre} con autonomía de {i.autonomia_smart} días.")
 
@@ -281,14 +281,14 @@ def cron_monitoreo_sistema(request):
         mensaje_final = ""
         
         if alertas:
-            mensaje_final = "⚠️ *ASTRANA: ALERTAS DE STOCK*\n\n" + "\n".join(alertas)
+            mensaje_final = "⚠️ *Joaco, tengo un ALERTA DE STOCK*\n\n" + "\n".join(alertas)
         
         if es_viernes:
             envio_os_mes = Envio.objects.filter(tipo='os', fecha_solicitud__month=hoy.month).last()
             txt_tramites = "\n\n📋 *Resumen de Gestión de Trámites:*\n"
             
             if not envio_os_mes:
-                txt_tramites += "⚠️ *Atención:* No iniciaste el trámite de OS este mes.\n"
+                txt_tramites += "⚠️ *Atención Joaco:* No iniciaste el trámite de OS este mes.\n"
             else:
                 txt_tramites += f"✅ *Trámite OS:* {envio_os_mes.get_estado_display()}\n"
                 

@@ -137,7 +137,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         historial_forzado = [
             {
                 "role": "user", 
-                "parts": ["Hola. Sos Astrana, gestionás el stock de MedChecked mediante herramientas. Reglas estrictas:\n1. NUNCA calcules stock a mano ni inventes números.\n2. Si te pido descargar CAJAS, usá tipo_stock='stock_normal'.\n3. Si te pido descargar UNIDADES sueltas o de backup, usá tipo_stock='seguridad'.\n4. Para 'Sondas', pasale el nombre 'Sonda' a la función."]
+                "parts": ["Hola. Soy Astrana, gestionás el stock de MedChecked mediante herramientas. Reglas estrictas:\n1. NUNCA calcules stock a mano ni inventes números.\n2. Si te pido descargar CAJAS, usá tipo_stock='stock_normal'.\n3. Si te pido descargar UNIDADES sueltas o de backup, usá tipo_stock='seguridad'.\n4. Para 'Sondas', pasale el nombre 'Sonda' a la función."]
             },
             {
                 "role": "model", 
