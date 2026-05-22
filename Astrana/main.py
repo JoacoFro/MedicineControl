@@ -52,7 +52,14 @@ def consultar_estado_stock():
     except Exception as e:
         return f"Error al consultar stock: {e}"
 
-def registrar_movimiento(accion: str, cantidad: int, tipo_stock: str, nombre_insumo: str = "Sonda"):
+def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_stock: str):
+    """
+    Registra la carga (pedido) o descarga (consumo) de insumos en el sistema.
+    Argumentos:
+        nombre_insumo: Nombre del producto (ej: 'Sonda', 'Gasa', etc.)
+        accion: 'cargar' o 'descargar'
+        tipo_stock: 'cajas' (para stock_normal) o 'unidades' (para seguridad)
+    """
     try:
         connection.close_if_unusable_or_obsolete()
         
@@ -63,35 +70,146 @@ def registrar_movimiento(accion: str, cantidad: int, tipo_stock: str, nombre_ins
         if not insumo:
             return f"❌ ERROR: No encontré el insumo '{nombre_insumo}'."
 
+        ahora = timezone.now()
+        tipo_usado = ""
+
+        # --- LÓGICA DE DESCARGA (CONSUMOS / SALIDAS) ---
         if accion == "descargar":
-            # Normalizamos lo que pueda mandar la IA para que entre acá
             if tipo_stock in ["stock_normal", "cajas", "principal", "normal"]:
                 insumo.stock_actual_cajas -= cantidad
                 Salida.objects.create(
                     insumo=insumo, 
-                    cantidad_cajas=cantidad, 
+                    cantidad_cajas=amount, # cantidad_cajas
                     cantidad=cantidad * 30, 
-                    tipo_stock='stock_normal' # Mismo valor que Django Choices
+                    tipo_stock='stock_normal'
                 )
-                tipo_usado = "Stock Normal (Cajas)"
+                tipo_usado = "Descarga de Stock Normal (Cajas)"
             else:
                 insumo.backup_unidades -= cantidad
                 Salida.objects.create(
                     insumo=insumo, 
                     cantidad_cajas=0, 
                     cantidad=cantidad, 
-                    tipo_stock='seguridad' # Mismo valor que Django Choices
+                    tipo_stock='seguridad'
                 )
-                tipo_usado = "Stock de Seguridad (Unidades)"
+                tipo_usado = "Descarga de Stock de Seguridad (Unidades)"
+
+        # --- LÓGICA DE CARGA (PEDIDOS / INGRESOS) --- ¡ESTO FALTABA!
+        elif accion == "cargar":
+            if tipo_stock in ["stock_normal", "cajas", "principal", "normal"]:
+                insumo.stock_actual_cajas += cantidad
+                Pedido.objects.create(
+                    insumo=insumo,
+                    tipo='normal',
+                    tipo_stock='stock_normal',
+                    cantidad=cantidad * 30, # Convierte cajas a unidades para el historial de Pedidos
+                    fecha=ahora,
+                    lugar_compra="Astrana IA"
+                )
+                tipo_usado = "Carga de Stock Normal (Cajas)"
+            else:
+                insumo.backup_unidades += cantidad
+                Pedido.objects.create(
+                    insumo=insumo,
+                    tipo='propio',
+                    tipo_stock='seguridad',
+                    cantidad=cantidad,
+                    fecha=ahora,
+                    lugar_compra="Astrana IA"
+                )
+                tipo_usado = "Carga de Stock de Seguridad (Unidades)"
+        
+        else:
+            return f"❌ ERROR: Acción '{accion}' no reconocida. Usar 'cargar' o 'descargar'."
 
         insumo.save()
         insumo.refresh_from_db()
         
-        return f"✅ Descarga exitosa en {insumo.nombre} ({tipo_usado}). Nuevo total: {insumo.total_unidades_reales} un."
+        return f"✅ Operación exitosa: {tipo_usado} para {insumo.nombre}. Cantidad: {cantidad}. Nuevo total real: {insumo.total_unidades_reales} un."
 
     except Exception as e:
         return f"❌ Error técnico: {str(e)}"
+def iniciar_tramite_pedido(tipo_tramite: str):
+    """
+    Inicia o registra un trámite mensual de gestión de insumos ('os' o 'backup') en el sistema.
+    Argumentos:
+        tipo_tramite: Debe ser 'os' (Obra Social) o 'backup' (Insumos de respaldo/propio).
+    """
+    try:
+        connection.close_if_unusable_or_obsolete()
+        
+        # Validamos lo que envíe la IA para asegurar que use las claves correctas
+        tipo_normalizado = tipo_tramite.lower().strip()
+        if tipo_normalizado in ["obra social", "os", "social"]:
+            tipo_final = "os"
+            nombre_legible = "Obra Social"
+        elif tipo_normalizado in ["backup", "seguridad", "propio"]:
+            tipo_final = "backup"
+            nombre_legible = "Backup"
+        else:
+            return f"❌ ERROR: El tipo de trámite '{tipo_tramite}' no es válido. Usar 'os' o 'backup'."
+            
+        hoy = timezone.now()
+        
+        # Evitamos duplicar el mismo trámite el mismo mes si ya está en curso
+        tramite_existente = Envio.objects.filter(
+            tipo=tipo_final, 
+            estado='tramite',
+            fecha_solicitud__month=hoy.month,
+            fecha_solicitud__year=hoy.year
+        ).exists()
+        
+        if tramite_existente:
+            return f"⚠️ ATENCIÓN: Ya existe un trámite de {nombre_legible} en curso ('tramite') para este mes."
+            
+        # Creamos el registro real en la tabla Envio de Django
+        nuevo_envio = Envio.objects.create(
+            tipo=tipo_final,
+            estado='tramite', # Estado inicial por defecto en gestión
+            fecha_solicitud=hoy.date() # Guarda solo la fecha limpia
+        )
+        
+        return f"📋 ¡Trámite de {nombre_legible} Iniciado Exitosamente! Registrado en el sistema con estado 'En trámite'."
 
+    except Exception as e:
+        return f"❌ Error técnico al iniciar trámite: {str(e)}"
+    
+def cerrar_tramite_pedido(tipo_tramite: str, estado_final: str = "entregado"):
+    """
+    Cierra un trámite mensual activo ('os' o 'backup') cambiándolo a un estado final (ej: entregado o rechazado).
+    Argumentos:
+        tipo_tramite: Puede ser 'os' o 'backup'.
+        estado_final: El estado de destino. Por defecto 'entregado' (puedes usar 'rechazado' si falló).
+    """
+    try:
+        connection.close_if_unusable_or_obsolete()
+        
+        # Normalizamos el tipo de trámite
+        tipo_normalizado = tipo_tramite.lower().strip()
+        if tipo_normalizado in ["obra social", "os", "social"]:
+            tipo_final = "os"
+            nombre_legible = "Obra Social"
+        elif tipo_normalizado in ["backup", "seguridad", "propio"]:
+            tipo_final = "backup"
+            nombre_legible = "Backup"
+        else:
+            return f"❌ ERROR: Tipo de trámite '{tipo_tramite}' no reconocido."
+            
+        # Buscamos el último trámite que esté en curso ('tramite')
+        tramite = Envio.objects.filter(tipo=tipo_final, estado='tramite').last()
+        
+        if not tramite:
+            return f"⚠️ No encontré ningún trámite activo de {nombre_legible} en estado 'En curso' para cerrar."
+            
+        # Actualizamos el estado (normalmente Django usa 'entregado' o similar en sus Choices)
+        tramite.estado = estado_final.lower().strip()
+        tramite.save()
+        
+        return f"✅ ¡Trámite de {nombre_legible} cerrado con éxito! Nuevo estado: '{tramite.get_estado_display()}'."
+
+    except Exception as e:
+        return f"❌ Error técnico al cerrar el trámite: {str(e)}"
+     
 def obtener_resumen_pedidos():
     """Consulta trámites con limpieza de conexión."""
     try:
@@ -108,7 +226,8 @@ def obtener_resumen_pedidos():
         if pendientes.exists():
             txt += "*En curso:*\n"
             for e in pendientes:
-                txt += f"🔹 {e.tipo.upper()}: Hace {(hoy - e.fecha_solicitud.date()).days} días.\n"
+                # CORRECCIÓN: Se cambió e.fecha_solicitud.date() por e.fecha_solicitud
+                txt += f"🔹 {e.tipo.upper()}: Hace {(hoy - e.fecha_solicitud).days} días.\n"
         return txt
     except Exception as e:
         return f"Error en resumen: {e}"
@@ -124,7 +243,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 
 model = genai.GenerativeModel(
     model_name='models/gemini-flash-latest', 
-    tools=[consultar_estado_stock, registrar_movimiento, obtener_resumen_pedidos]
+    tools=[consultar_estado_stock, registrar_movimiento, obtener_resumen_pedidos,iniciar_tramite_pedido, cerrar_tramite_pedido]
 )
 
 historiales = {}
