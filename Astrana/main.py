@@ -129,16 +129,16 @@ def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_st
 
     except Exception as e:
         return f"❌ Error técnico: {str(e)}"
-def iniciar_tramite_pedido(tipo_tramite: str):
+def iniciar_tramite_pedido(tipo_tramite: str, cantidad: int = None):
     """
-    Inicia o registra un trámite mensual de gestión de insumos ('os' o 'backup') en el sistema.
+    Inicia un trámite mensual ('os' o 'backup') y registra la cantidad pedida en el sistema.
     Argumentos:
-        tipo_tramite: Debe ser 'os' (Obra Social) o 'backup' (Insumos de respaldo/propio).
+        tipo_tramite: 'os' o 'backup'.
+        cantidad: Cantidad de insumos/cajas que se van a solicitar (obligatorio/preguntar).
     """
     try:
         connection.close_if_unusable_or_obsolete()
         
-        # Validamos lo que envíe la IA para asegurar que use las claves correctas
         tipo_normalizado = tipo_tramite.lower().strip()
         if tipo_normalizado in ["obra social", "os", "social"]:
             tipo_final = "os"
@@ -147,11 +147,15 @@ def iniciar_tramite_pedido(tipo_tramite: str):
             tipo_final = "backup"
             nombre_legible = "Backup"
         else:
-            return f"❌ ERROR: El tipo de trámite '{tipo_tramite}' no es válido. Usar 'os' o 'backup'."
+            return f"❌ ERROR: El tipo de trámite '{tipo_tramite}' no es válido."
+            
+        # Si la IA no entendió la cantidad en el mensaje, frena el flujo y la pregunta
+        if cantidad is None or cantidad <= 0:
+            return f"❓ ¿Cuántas cajas o unidades vas a solicitar para el trámite de {nombre_legible}?"
             
         hoy = timezone.now()
         
-        # Evitamos duplicar el mismo trámite el mismo mes si ya está en curso
+        # Evitamos duplicados activos en el mismo mes y año
         tramite_existente = Envio.objects.filter(
             tipo=tipo_final, 
             estado='tramite',
@@ -160,55 +164,107 @@ def iniciar_tramite_pedido(tipo_tramite: str):
         ).exists()
         
         if tramite_existente:
-            return f"⚠️ ATENCIÓN: Ya existe un trámite de {nombre_legible} en curso ('tramite') para este mes."
+            return f"⚠️ ATENCIÓN: Ya existe un trámite de {nombre_legible} en curso para este mes."
             
-        # Creamos el registro real en la tabla Envio de Django
+        # Creamos el registro usando el campo real de tu modelo: 'cantidad_pedida'
         nuevo_envio = Envio.objects.create(
             tipo=tipo_final,
-            estado='tramite', # Estado inicial por defecto en gestión
-            fecha_solicitud=hoy.date() # Guarda solo la fecha limpia
+            estado='tramite',
+            cantidad_pedida=cantidad
         )
         
-        return f"📋 ¡Trámite de {nombre_legible} Iniciado Exitosamente! Registrado en el sistema con estado 'En trámite'."
+        return f"📋 ¡Trámite de {nombre_legible} Iniciado! Registrado con una solicitud de {cantidad} cajas/unidades."
 
     except Exception as e:
         return f"❌ Error técnico al iniciar trámite: {str(e)}"
     
-def cerrar_tramite_pedido(tipo_tramite: str, estado_final: str = "entregado"):
+def cerrar_tramite_pedido(tipo_tramite: str, tipo_stock: str = "cajas"):
     """
-    Cierra un trámite mensual activo ('os' o 'backup') cambiándolo a un estado final (ej: entregado o rechazado).
+    Cierra un trámite activo ('os' o 'backup') pasándolo a 'recibido'.
+    Recupera de forma automática la 'cantidad_pedida' inicial, suma el stock físico 
+    en la tabla Insumo e impacta la tabla de ingresos Pedido.
     Argumentos:
-        tipo_tramite: Puede ser 'os' o 'backup'.
-        estado_final: El estado de destino. Por defecto 'entregado' (puedes usar 'rechazado' si falló).
+        tipo_tramite: 'os' o 'backup'.
+        tipo_stock: 'cajas' (stock normal) o 'unidades' (seguridad).
     """
     try:
         connection.close_if_unusable_or_obsolete()
         
-        # Normalizamos el tipo de trámite
         tipo_normalizado = tipo_tramite.lower().strip()
         if tipo_normalizado in ["obra social", "os", "social"]:
             tipo_final = "os"
             nombre_legible = "Obra Social"
+            insumo_defecto = "Sonda"
         elif tipo_normalizado in ["backup", "seguridad", "propio"]:
             tipo_final = "backup"
             nombre_legible = "Backup"
+            insumo_defecto = "Sonda"
         else:
             return f"❌ ERROR: Tipo de trámite '{tipo_tramite}' no reconocido."
             
-        # Buscamos el último trámite que esté en curso ('tramite')
+        # Buscamos el trámite activo más reciente
         tramite = Envio.objects.filter(tipo=tipo_final, estado='tramite').last()
-        
         if not tramite:
-            return f"⚠️ No encontré ningún trámite activo de {nombre_legible} en estado 'En curso' para cerrar."
+            return f"⚠️ No encontré ningún trámite activo de {nombre_legible} en curso para cerrar."
             
-        # Actualizamos el estado (normalmente Django usa 'entregado' o similar en sus Choices)
-        tramite.estado = estado_final.lower().strip()
+        # LEEMOS LA CANTIDAD QUE GUARDAMOS AL INICIO
+        cantidad = tramite.cantidad_pedida
+        ahora = timezone.now()
+        
+        # Cambiamos el estado administrativo según los choices reales de tu modelo ('recibido')
+        tramite.estado = 'recibido'
+        tramite.fecha_cierre = ahora.date()
         tramite.save()
         
-        return f"✅ ¡Trámite de {nombre_legible} cerrado con éxito! Nuevo estado: '{tramite.get_estado_display()}'."
+        resultado_msg = f"📋 ¡Trámite de {nombre_legible} cerrado con éxito! Estado: 'Recibido'."
+
+        # LÓGICA DE IMPACTO REAL
+        if cantidad and cantidad > 0:
+            insumo = Insumo.objects.filter(nombre__icontains=insumo_defecto).first()
+            if not insumo:
+                return resultado_msg + f" ⚠️ Trámite cerrado, pero no encontré el insumo '{insumo_defecto}' en el sistema para actualizar stock."
+            
+            # Si se guarda en Stock Normal (Cajas)
+            if tipo_stock in ["stock_normal", "cajas", "principal", "normal"]:
+                insumo.stock_actual_cajas += cantidad
+                
+                # Creamos el registro en la tabla de ingresos (Pedido) usando tus choices reales
+                Pedido.objects.create(
+                    insumo=insumo,
+                    tipo=tipo_final,          # Guarda 'os' o 'backup'
+                    tipo_stock='stock_normal', # Elección del destino
+                    cantidad=cantidad,         # Registramos las cajas que ingresaron
+                    fecha=ahora.date(),
+                    lugar_compra=f"Cierre Trámite {nombre_legible}"
+                )
+                detalle_stock = f"Se sumaron {cantidad} cajas al Stock Normal."
+                
+            # Si se guarda en Reserva / Seguridad (Unidades)
+            else:
+                insumo.backup_unidades += cantidad
+                
+                # Creamos el registro en la tabla de ingresos (Pedido)
+                Pedido.objects.create(
+                    insumo=insumo,
+                    tipo=tipo_final,       # Guarda 'os' o 'backup'
+                    tipo_stock='seguridad', # Elección del destino
+                    cantidad=cantidad,      # Registramos las unidades que ingresaron
+                    fecha=ahora.date(),
+                    lugar_compra=f"Cierre Trámite {nombre_legible}"
+                )
+                detalle_stock = f"Se sumaron {cantidad} unidades al Stock de Seguridad."
+                
+            insumo.save()
+            insumo.refresh_from_db()
+            
+            resultado_msg += f"\n📦 ¡Base de datos actualizada! {detalle_stock}\nNuevo total real disponible: {insumo.total_unidades_reales} un."
+        else:
+            resultado_msg += f"\n⚠️ El trámite se cerró, pero la cantidad pedida registrada era {cantidad}, por lo que no se modificó el stock."
+
+        return resultado_msg
 
     except Exception as e:
-        return f"❌ Error técnico al cerrar el trámite: {str(e)}"
+        return f"❌ Error técnico al procesar el cierre e impacto: {str(e)}"
      
 def obtener_resumen_pedidos():
     """Consulta trámites con limpieza de conexión."""
