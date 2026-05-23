@@ -36,17 +36,19 @@
 
     <!-- CARD: SONDAS SUELTAS (RESERVA) -->
     <div class="col">
-        <div class="custom-card shadow p-3" style="border: 1px solid rgba(0, 242, 255, 0.3); background: rgba(13, 110, 253, 0.08); position: relative; display: flex; flex-direction: column; justify-content: center; min-height: 115px;">
-            <div style="position: absolute; left: 10px; top: 50%; transform: translateY(-50%);">
-                <i class="bi bi-shield-shaded" style="font-size: 2.2rem; color: #00f2ff; text-shadow: 0 0 15px #00f2ff;"></i>
+        <div class="custom-card shadow p-3" style="border: 1px solid rgba(0, 242, 255, 0.3); background: rgba(13, 110, 253, 0.08); display: flex; flex-direction: row; align-items: center; min-height: 115px; box-sizing: border-box;">
+        
+            <div style="flex-shrink: 0; padding-left: 5px; padding-right: 15px; display: flex; align-items: center;">
+            <i class="bi bi-shield-shaded" style="font-size: 2.2rem; color: #00f2ff; text-shadow: 0 0 15px #00f2ff;"></i>
             </div>
-            <div class="text-center w-100">
-                <span class="text-secondary small text-uppercase" style="letter-spacing: 1px; font-size: 0.7rem;">Sondas Sueltas</span>
-                <h3 class="fw-bold mt-1 mb-0" style="color: #00f2ff; text-shadow: 0 0 10px rgba(0, 242, 255, 0.5); line-height: 1.1;">
-                    {{ total_backup }}
-                </h3>
-                <small class="text-info opacity-75 fw-bold" style="font-size: 0.7rem;">Reserva</small>
-            </div>
+        
+        <div class="text-center" style="flex-grow: 1; padding-right: 40px;"> <span class="text-secondary small text-uppercase" style="letter-spacing: 1px; font-size: 0.7rem; display: block;">Sondas Sueltas</span>
+            <h3 class="fw-bold mt-1 mb-0" style="color: #00f2ff; text-shadow: 0 0 10px rgba(0, 242, 255, 0.5); line-height: 1.1;">
+                {{ total_backup }}
+            </h3>
+            <small class="text-info opacity-75 fw-bold" style="font-size: 0.7rem; display: block;">Reserva</small>
+        </div>
+
         </div>
     </div>
 
