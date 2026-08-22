@@ -317,6 +317,9 @@ async def mostrar_submenu_tramites(query):
     ]
     await query.edit_message_text("📋 **Menú de Trámites:**\nSeleccioná una opción:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+def obtener_boton_volver():
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🏠 Volver al Menú Principal", callback_data="menu_principal")]])
+
 # --- 6. MANEJADOR DE BOTONES Y ACCIONES ---
 
 async def manejar_botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -337,30 +340,29 @@ async def manejar_botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Submenú Stock
     elif opcion == "op_stock_consultar":
         res = await sync_to_async(consultar_estado_stock)()
-        await query.edit_message_text(res, parse_mode="Markdown")
+        await query.edit_message_text(res, reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_stock_agregar":
-        await query.edit_message_text("➕ **Agregar Stock:**\nEscribime qué insumo ingresó (ejemplo: *'Ingresaron 5 cajas de sondas'*).", parse_mode="Markdown")
+        await query.edit_message_text("➕ **Agregar Stock:**\nEscribime qué insumo ingresó (ejemplo: *'Ingresaron 5 cajas de sondas'*).", reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_stock_quitar":
-        await query.edit_message_text("➖ **Quitar Stock:**\nEscribime qué insumo retiraste (ejemplo: *'Descontar 2 paquetes de gasas'*).", parse_mode="Markdown")
+        await query.edit_message_text("➖ **Quitar Stock:**\nEscribime qué insumo retiraste (ejemplo: *'Descontar 2 paquetes de gasas'*).", reply_markup=obtener_boton_volver(), parse_mode="Markdown")
 
     # Submenú Trámites
     elif opcion == "op_tramites_estado":
         res = await sync_to_async(obtener_resumen_pedidos)()
-        await query.edit_message_text(res, parse_mode="Markdown")
+        await query.edit_message_text(res, reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_tramites_iniciar_os":
         res = await sync_to_async(iniciar_tramite_pedido)(tipo_tramite="os", cantidad=12)
-        await query.edit_message_text(res, parse_mode="Markdown")
+        await query.edit_message_text(res, reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_tramites_iniciar_backup":
         res = await sync_to_async(iniciar_tramite_pedido)(tipo_tramite="backup", cantidad=150)
-        await query.edit_message_text(res, parse_mode="Markdown")
+        await query.edit_message_text(res, reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_tramites_cerrar":
-        # Cerrar trámite activo de OS por defecto llamando a la función de DB
         res = await sync_to_async(cerrar_tramite_pedido)(tipo_tramite="os", tipo_stock="cajas")
-        await query.edit_message_text(res, parse_mode="Markdown")
+        await query.edit_message_text(res, reply_markup=obtener_boton_volver(), parse_mode="Markdown")
 
     # Modo Chat Libre
     elif opcion == "op_chat":
-        await query.edit_message_text("💬 **Modo Chat con IA Activado:**\nPodés escribirme cualquier consulta libremente.")
+        await query.edit_message_text("💬 **Modo Chat con IA Activado:**\nPodés escribirme cualquier consulta libremente.", reply_markup=obtener_boton_volver())
 
 # --- 7. ATENCIÓN DE MENSAJES Y CHAT ---
 
@@ -394,13 +396,13 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         response = await asyncio.to_thread(historiales[user_id].send_message, texto_usuario)
         
         if response.text:
-            await update.message.reply_text(response.text)
+            await update.message.reply_text(response.text, reply_markup=obtener_boton_volver())
         else:
-            await update.message.reply_text("✅ Movimiento procesado en la base de datos.")
+            await update.message.reply_text("✅ Movimiento procesado en la base de datos.", reply_markup=obtener_boton_volver())
             
     except Exception as e:
         print(f"Error en respuesta IA: {e}")
-        await update.message.reply_text("⚠️ Hubo un problema al procesar el mensaje. Probá diciendo 'Hola Astrana'.")
+        await update.message.reply_text("⚠️ Hubo un problema al procesar el mensaje. Probá diciendo 'Hola Astrana'.", reply_markup=obtener_boton_volver())
 
 # --- 8. PUNTO DE ENTRADA ---
 
