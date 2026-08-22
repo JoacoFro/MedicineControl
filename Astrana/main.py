@@ -71,10 +71,6 @@ def consultar_estado_stock():
 def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_stock: str):
     """
     Registra la carga (pedido) o descarga (consumo) de insumos en el sistema.
-    Argumentos:
-        nombre_insumo: Nombre del producto (ej: 'Sonda', etc.)
-        accion: 'cargar' o 'descargar'
-        tipo_stock: 'cajas' (para stock_normal) o 'unidades' (para seguridad)
     """
     try:
         connection.close_if_unusable_or_obsolete()
@@ -287,27 +283,41 @@ if GEMINI_API_KEY:
 
 historiales = {}
 
-# --- 5. MENÚS INTERACTIVOS CON BOTONES ---
-async def enviar_menu_opciones(update: Update, context: ContextTypes.DEFAULT_TYPE, saludo: str):
+# --- 5. MENÚS MULTINIVEL (ÁRBOLES DE NAVEGACIÓN) ---
+
+async def mostrar_menu_principal(update: Update, context: ContextTypes.DEFAULT_TYPE, saludo: str = "Hola Joaco, ¿cómo te ayudo?"):
     keyboard = [
-        [
-            InlineKeyboardButton("📦 Consultar Stock", callback_data="op_stock"),
-            InlineKeyboardButton("📋 Estado de Trámites", callback_data="op_tramites"),
-        ],
-        [
-            InlineKeyboardButton("➕ Iniciar Trámite OS", callback_data="op_tramite_os"),
-            InlineKeyboardButton("🔄 Iniciar Trámite Backup", callback_data="op_tramite_backup"),
-        ],
-        [
-            InlineKeyboardButton("💬 Hablar libremente con IA", callback_data="op_chat"),
-        ]
+        [InlineKeyboardButton("📦 Stock", callback_data="menu_stock")],
+        [InlineKeyboardButton("📋 Trámites", callback_data="menu_tramites")],
+        [InlineKeyboardButton("💬 Hablar libremente con Astrana", callback_data="op_chat")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.message:
         await update.message.reply_text(saludo, reply_markup=reply_markup)
     elif update.callback_query:
-        await update.callback_query.message.reply_text(saludo, reply_markup=reply_markup)
+        await update.callback_query.edit_message_text(saludo, reply_markup=reply_markup)
+
+async def mostrar_submenu_stock(query):
+    keyboard = [
+        [InlineKeyboardButton("📊 Consultar Stock", callback_data="op_stock_consultar")],
+        [InlineKeyboardButton("➕ Agregar Stock", callback_data="op_stock_agregar")],
+        [InlineKeyboardButton("➖ Quitar Stock", callback_data="op_stock_quitar")],
+        [InlineKeyboardButton("🔙 Volver al Menú Principal", callback_data="menu_principal")]
+    ]
+    await query.edit_message_text("📦 **Menú de Stock:**\nSeleccioná una opción:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+async def mostrar_submenu_tramites(query):
+    keyboard = [
+        [InlineKeyboardButton("ℹ️ Estado de trámites", callback_data="op_tramites_estado")],
+        [InlineKeyboardButton("📝 Iniciar trámite de OS", callback_data="op_tramites_iniciar_os")],
+        [InlineKeyboardButton("🔄 Iniciar trámite backup", callback_data="op_tramites_iniciar_backup")],
+        [InlineKeyboardButton("✅ Cerrar trámites abiertos", callback_data="op_tramites_cerrar")],
+        [InlineKeyboardButton("🔙 Volver al Menú Principal", callback_data="menu_principal")]
+    ]
+    await query.edit_message_text("📋 **Menú de Trámites:**\nSeleccioná una opción:", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+
+# --- 6. MANEJADOR DE BOTONES Y ACCIONES ---
 
 async def manejar_botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -316,33 +326,51 @@ async def manejar_botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await sync_to_async(connection.close_if_unusable_or_obsolete)()
     opcion = query.data
 
-    if opcion == "op_stock":
+    # Navegación
+    if opcion == "menu_principal":
+        await mostrar_menu_principal(update, context)
+    elif opcion == "menu_stock":
+        await mostrar_submenu_stock(query)
+    elif opcion == "menu_tramites":
+        await mostrar_submenu_tramites(query)
+
+    # Submenú Stock
+    elif opcion == "op_stock_consultar":
         res = await sync_to_async(consultar_estado_stock)()
         await query.edit_message_text(res, parse_mode="Markdown")
-        
-    elif opcion == "op_tramites":
+    elif opcion == "op_stock_agregar":
+        await query.edit_message_text("➕ **Agregar Stock:**\nEscribime qué insumo ingresó (ejemplo: *'Ingresaron 5 cajas de sondas'*).", parse_mode="Markdown")
+    elif opcion == "op_stock_quitar":
+        await query.edit_message_text("➖ **Quitar Stock:**\nEscribime qué insumo retiraste (ejemplo: *'Descontar 2 paquetes de gasas'*).", parse_mode="Markdown")
+
+    # Submenú Trámites
+    elif opcion == "op_tramites_estado":
         res = await sync_to_async(obtener_resumen_pedidos)()
         await query.edit_message_text(res, parse_mode="Markdown")
-
-    elif opcion == "op_tramite_os":
+    elif opcion == "op_tramites_iniciar_os":
         res = await sync_to_async(iniciar_tramite_pedido)(tipo_tramite="os", cantidad=12)
         await query.edit_message_text(res, parse_mode="Markdown")
-
-    elif opcion == "op_tramite_backup":
+    elif opcion == "op_tramites_iniciar_backup":
         res = await sync_to_async(iniciar_tramite_pedido)(tipo_tramite="backup", cantidad=150)
         await query.edit_message_text(res, parse_mode="Markdown")
+    elif opcion == "op_tramites_cerrar":
+        # Cerrar trámite activo de OS por defecto llamando a la función de DB
+        res = await sync_to_async(cerrar_tramite_pedido)(tipo_tramite="os", tipo_stock="cajas")
+        await query.edit_message_text(res, parse_mode="Markdown")
 
+    # Modo Chat Libre
     elif opcion == "op_chat":
         await query.edit_message_text("💬 **Modo Chat con IA Activado:**\nPodés escribirme cualquier consulta libremente.")
 
-# --- 6. ATENCIÓN DE MENSAJES Y CHAT ---
+# --- 7. ATENCIÓN DE MENSAJES Y CHAT ---
+
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto_usuario = update.message.text.strip()
     texto_lower = texto_usuario.lower()
 
     # Disparador para mostrar el menú
     if "hola astrana" in texto_lower or texto_lower in ["/start", "/menu"]:
-        await enviar_menu_opciones(update, context, "Hola Joaco, ¿cómo te ayudo?")
+        await mostrar_menu_principal(update, context)
         return
 
     # Si es texto libre, consulta a la IA con herramientas
@@ -352,7 +380,7 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         historial_forzado = [
             {
                 "role": "user", 
-                "parts": ["Hola. Soy Astrana, gestionás el stock mediante herramientas. Reglas estrictas:\n1. NUNCA calcules stock a mano ni inventes números.\n2. Si te pido descargar CAJAS, usá tipo_stock='stock_normal'.\n3. Si te pido descargar UNIDADES sueltas o de backup, usá tipo_stock='seguridad'.\n4. Para 'Sondas', pasale el nombre 'Sonda' a la función."]
+                "parts": ["Hola. Soy Astrana, gestionás el stock mediante herramientas. Reglas strictly:\n1. NUNCA calcules stock a mano ni inventes números.\n2. Si te pido descargar CAJAS, usá tipo_stock='stock_normal'.\n3. Si te pido descargar UNIDADES sueltas o de backup, usá tipo_stock='seguridad'.\n4. Para 'Sondas', pasale el nombre 'Sonda' a la función."]
             },
             {
                 "role": "model", 
@@ -374,7 +402,8 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
         print(f"Error en respuesta IA: {e}")
         await update.message.reply_text("⚠️ Hubo un problema al procesar el mensaje. Probá diciendo 'Hola Astrana'.")
 
-# --- 7. PUNTO DE ENTRADA ---
+# --- 8. PUNTO DE ENTRADA ---
+
 def main():
     if not TELEGRAM_TOKEN:
         print("❌ ERROR: No se encontró TELEGRAM_TOKEN.")
@@ -386,7 +415,7 @@ def main():
     application.add_handler(CallbackQueryHandler(manejar_botones))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), responder))
     
-    print("🚀 Astrana IA (Híbrido Menú + Herramientas) desplegando...")
+    print("🚀 Astrana IA (Híbrido Menú Árbol + Herramientas) desplegando...")
     application.run_polling(drop_pending_updates=True)
 
 if __name__ == '__main__':
