@@ -1,18 +1,17 @@
 import os
 import sys
-import django
 import asyncio
+import threading
 from pathlib import Path
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import ApplicationBuilder, ContextTypes, MessageHandler, filters
-import google.generativeai as genai
-from asgiref.sync import sync_to_async
-# IMPORTANTE: Necesitamos esto para limpiar conexiones muertas
+
+import django
 from django.db import connection
 from django.utils import timezone
+from asgiref.sync import sync_to_async
 
-# --- 1. PUENTE CON DJANGO ---
+# --- 1. PUENTE Y CONFIGURACIÓN CON DJANGO ---
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
     sys.path.insert(0, str(BASE_DIR))
@@ -22,16 +21,33 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 
 from medicine_control.models import Insumo, Pedido, Salida, Envio
+import google.generativeai as genai
 
-# --- 2. WRAPPERS PARA DJANGO ---
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    CallbackQueryHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
 
-@sync_to_async
-def obtener_insumos_db():
-    """Puente asíncrono que limpia la conexión SSL antes de consultar."""
-    connection.close_if_unusable_or_obsolete()
-    return list(Insumo.objects.all())
+# --- 2. SERVIDOR DUMMY HTTP PARA RENDER ---
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Astrana Bot Activo y Saludable")
 
-# --- 3. FUNCIONES DE LÓGICA (TOOLS CORREGIDAS) ---
+def run_dummy_server():
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
+
+threading.Thread(target=run_dummy_server, daemon=True).start()
+
+# --- 3. FUNCIONES DE LÓGICA / HERRAMIENTAS DJANGO ---
 
 def consultar_estado_stock():
     """Consulta el stock detallado limpiando la conexión SSL."""
@@ -39,13 +55,13 @@ def consultar_estado_stock():
         connection.close_if_unusable_or_obsolete()
         insumos = Insumo.objects.all()
         if not insumos:
-            return "No hay insumos registrados."
+            return "No hay insumos registrados en la base de datos."
         
-        reporte = "📊 Estado Actual:\n"
+        reporte = "📊 **Estado Actual del Stock:**\n"
         for i in insumos:
             aut = i.autonomia_smart
             emoji = "🔴" if aut <= 10 else "🟡" if aut <= 15 else "🟢"
-            reporte += (f"- {i.nombre}: {i.total_unidades_reales} un. "
+            reporte += (f"• **{i.nombre}**: {i.total_unidades_reales} un. "
                         f"({i.stock_actual_cajas} cajas, {i.backup_unidades} backup). "
                         f"Autonomía: {emoji} {aut} días.\n")
         return reporte
@@ -56,14 +72,13 @@ def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_st
     """
     Registra la carga (pedido) o descarga (consumo) de insumos en el sistema.
     Argumentos:
-        nombre_insumo: Nombre del producto (ej: 'Sonda', 'Gasa', etc.)
+        nombre_insumo: Nombre del producto (ej: 'Sonda', etc.)
         accion: 'cargar' o 'descargar'
         tipo_stock: 'cajas' (para stock_normal) o 'unidades' (para seguridad)
     """
     try:
         connection.close_if_unusable_or_obsolete()
         
-        # Limpieza de plurales
         nombre_busqueda = nombre_insumo.rstrip('sS') 
         insumo = Insumo.objects.filter(nombre__icontains=nombre_busqueda).first()
         
@@ -73,13 +88,12 @@ def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_st
         ahora = timezone.now()
         tipo_usado = ""
 
-        # --- LÓGICA DE DESCARGA (CONSUMOS / SALIDAS) ---
         if accion == "descargar":
             if tipo_stock in ["stock_normal", "cajas", "principal", "normal"]:
                 insumo.stock_actual_cajas -= cantidad
                 Salida.objects.create(
                     insumo=insumo, 
-                    cantidad_cajas=amount, # cantidad_cajas
+                    cantidad_cajas=cantidad, 
                     cantidad=cantidad * 30, 
                     tipo_stock='stock_normal'
                 )
@@ -94,7 +108,6 @@ def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_st
                 )
                 tipo_usado = "Descarga de Stock de Seguridad (Unidades)"
 
-        # --- LÓGICA DE CARGA (PEDIDOS / INGRESOS) --- ¡ESTO FALTABA!
         elif accion == "cargar":
             if tipo_stock in ["stock_normal", "cajas", "principal", "normal"]:
                 insumo.stock_actual_cajas += cantidad
@@ -102,7 +115,7 @@ def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_st
                     insumo=insumo,
                     tipo='normal',
                     tipo_stock='stock_normal',
-                    cantidad=cantidad * 30, # Convierte cajas a unidades para el historial de Pedidos
+                    cantidad=cantidad * 30,
                     fecha=ahora,
                     lugar_compra="Astrana IA"
                 )
@@ -118,23 +131,19 @@ def registrar_movimiento(nombre_insumo: str, accion: str, cantidad: int, tipo_st
                     lugar_compra="Astrana IA"
                 )
                 tipo_usado = "Carga de Stock de Seguridad (Unidades)"
-        
         else:
             return f"❌ ERROR: Acción '{accion}' no reconocida. Usar 'cargar' o 'descargar'."
 
         insumo.save()
         insumo.refresh_from_db()
-        
         return f"✅ Operación exitosa: {tipo_usado} para {insumo.nombre}. Cantidad: {cantidad}. Nuevo total real: {insumo.total_unidades_reales} un."
 
     except Exception as e:
         return f"❌ Error técnico: {str(e)}"
+
 def iniciar_tramite_pedido(tipo_tramite: str, cantidad: int = None):
     """
-    Inicia un trámite mensual ('os' o 'backup') y registra la cantidad pedida en el sistema.
-    Argumentos:
-        tipo_tramite: 'os' o 'backup'.
-        cantidad: Cantidad de insumos/cajas que se van a solicitar (obligatorio/preguntar).
+    Inicia un trámite mensual ('os' o 'backup') y registra la cantidad pedida.
     """
     try:
         connection.close_if_unusable_or_obsolete()
@@ -149,13 +158,10 @@ def iniciar_tramite_pedido(tipo_tramite: str, cantidad: int = None):
         else:
             return f"❌ ERROR: El tipo de trámite '{tipo_tramite}' no es válido."
             
-        # Si la IA no entendió la cantidad en el mensaje, frena el flujo y la pregunta
         if cantidad is None or cantidad <= 0:
             return f"❓ ¿Cuántas cajas o unidades vas a solicitar para el trámite de {nombre_legible}?"
             
         hoy = timezone.now()
-        
-        # Evitamos duplicados activos en el mismo mes y año
         tramite_existente = Envio.objects.filter(
             tipo=tipo_final, 
             estado='tramite',
@@ -166,26 +172,19 @@ def iniciar_tramite_pedido(tipo_tramite: str, cantidad: int = None):
         if tramite_existente:
             return f"⚠️ ATENCIÓN: Ya existe un trámite de {nombre_legible} en curso para este mes."
             
-        # Creamos el registro usando el campo real de tu modelo: 'cantidad_pedida'
         nuevo_envio = Envio.objects.create(
             tipo=tipo_final,
             estado='tramite',
             cantidad_pedida=cantidad
         )
-        
         return f"📋 ¡Trámite de {nombre_legible} Iniciado! Registrado con una solicitud de {cantidad} cajas/unidades."
 
     except Exception as e:
         return f"❌ Error técnico al iniciar trámite: {str(e)}"
-    
+
 def cerrar_tramite_pedido(tipo_tramite: str, tipo_stock: str = "cajas"):
     """
-    Cierra un trámite activo ('os' o 'backup') pasándolo a 'recibido'.
-    Recupera de forma automática la 'cantidad_pedida' inicial, suma el stock físico 
-    en la tabla Insumo e impacta la tabla de ingresos Pedido.
-    Argumentos:
-        tipo_tramite: 'os' o 'backup'.
-        tipo_stock: 'cajas' (stock normal) o 'unidades' (seguridad).
+    Cierra un trámite activo pasándolo a 'recibido' e impacta el stock.
     """
     try:
         connection.close_if_unusable_or_obsolete()
@@ -202,53 +201,42 @@ def cerrar_tramite_pedido(tipo_tramite: str, tipo_stock: str = "cajas"):
         else:
             return f"❌ ERROR: Tipo de trámite '{tipo_tramite}' no reconocido."
             
-        # Buscamos el trámite activo más reciente
         tramite = Envio.objects.filter(tipo=tipo_final, estado='tramite').last()
         if not tramite:
             return f"⚠️ No encontré ningún trámite activo de {nombre_legible} en curso para cerrar."
             
-        # LEEMOS LA CANTIDAD QUE GUARDAMOS AL INICIO
         cantidad = tramite.cantidad_pedida
         ahora = timezone.now()
         
-        # Cambiamos el estado administrativo según los choices reales de tu modelo ('recibido')
         tramite.estado = 'recibido'
         tramite.fecha_cierre = ahora.date()
         tramite.save()
         
         resultado_msg = f"📋 ¡Trámite de {nombre_legible} cerrado con éxito! Estado: 'Recibido'."
 
-        # LÓGICA DE IMPACTO REAL
         if cantidad and cantidad > 0:
             insumo = Insumo.objects.filter(nombre__icontains=insumo_defecto).first()
             if not insumo:
-                return resultado_msg + f" ⚠️ Trámite cerrado, pero no encontré el insumo '{insumo_defecto}' en el sistema para actualizar stock."
+                return resultado_msg + f" ⚠️ Trámite cerrado, pero no encontré el insumo '{insumo_defecto}' para actualizar stock."
             
-            # Si se guarda en Stock Normal (Cajas)
             if tipo_stock in ["stock_normal", "cajas", "principal", "normal"]:
                 insumo.stock_actual_cajas += cantidad
-                
-                # Creamos el registro en la tabla de ingresos (Pedido) usando tus choices reales
                 Pedido.objects.create(
                     insumo=insumo,
-                    tipo=tipo_final,          # Guarda 'os' o 'backup'
-                    tipo_stock='stock_normal', # Elección del destino
-                    cantidad=cantidad,         # Registramos las cajas que ingresaron
+                    tipo=tipo_final,
+                    tipo_stock='stock_normal',
+                    cantidad=cantidad,
                     fecha=ahora.date(),
                     lugar_compra=f"Cierre Trámite {nombre_legible}"
                 )
                 detalle_stock = f"Se sumaron {cantidad} cajas al Stock Normal."
-                
-            # Si se guarda en Reserva / Seguridad (Unidades)
             else:
                 insumo.backup_unidades += cantidad
-                
-                # Creamos el registro en la tabla de ingresos (Pedido)
                 Pedido.objects.create(
                     insumo=insumo,
-                    tipo=tipo_final,       # Guarda 'os' o 'backup'
-                    tipo_stock='seguridad', # Elección del destino
-                    cantidad=cantidad,      # Registramos las unidades que ingresaron
+                    tipo=tipo_final,
+                    tipo_stock='seguridad',
+                    cantidad=cantidad,
                     fecha=ahora.date(),
                     lugar_compra=f"Cierre Trámite {nombre_legible}"
                 )
@@ -256,18 +244,17 @@ def cerrar_tramite_pedido(tipo_tramite: str, tipo_stock: str = "cajas"):
                 
             insumo.save()
             insumo.refresh_from_db()
-            
             resultado_msg += f"\n📦 ¡Base de datos actualizada! {detalle_stock}\nNuevo total real disponible: {insumo.total_unidades_reales} un."
         else:
-            resultado_msg += f"\n⚠️ El trámite se cerró, pero la cantidad pedida registrada era {cantidad}, por lo que no se modificó el stock."
+            resultado_msg += f"\n⚠️ El trámite se cerró, pero no tenía cantidad pedida registrada."
 
         return resultado_msg
 
     except Exception as e:
-        return f"❌ Error técnico al procesar el cierre e impacto: {str(e)}"
-     
+        return f"❌ Error técnico al procesar el cierre: {str(e)}"
+
 def obtener_resumen_pedidos():
-    """Consulta trámites con limpieza de conexión."""
+    """Consulta los trámites actuales en curso."""
     try:
         connection.close_if_unusable_or_obsolete()
         hoy = timezone.now().date()
@@ -282,47 +269,101 @@ def obtener_resumen_pedidos():
         if pendientes.exists():
             txt += "*En curso:*\n"
             for e in pendientes:
-                # CORRECCIÓN: Se cambió e.fecha_solicitud.date() por e.fecha_solicitud
                 txt += f"🔹 {e.tipo.upper()}: Hace {(hoy - e.fecha_solicitud).days} días.\n"
         return txt
     except Exception as e:
         return f"Error en resumen: {e}"
 
-# --- 4. CONFIGURACIÓN DE IA Y BOT ---
-
-
-
+# --- 4. CONFIGURACIÓN DE GEMINI Y BOT ---
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN')
 
-genai.configure(api_key=GEMINI_API_KEY)
-
-model = genai.GenerativeModel(
-    model_name='models/gemini-flash-latest', 
-    tools=[consultar_estado_stock, registrar_movimiento, obtener_resumen_pedidos,iniciar_tramite_pedido, cerrar_tramite_pedido]
-)
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name='models/gemini-flash-latest', 
+        tools=[consultar_estado_stock, registrar_movimiento, obtener_resumen_pedidos, iniciar_tramite_pedido, cerrar_tramite_pedido]
+    )
 
 historiales = {}
 
+# --- 5. MENÚS INTERACTIVOS CON BOTONES ---
+async def enviar_menu_opciones(update: Update, context: ContextTypes.DEFAULT_TYPE, saludo: str):
+    keyboard = [
+        [
+            InlineKeyboardButton("📦 Consultar Stock", callback_data="op_stock"),
+            InlineKeyboardButton("📋 Estado de Trámites", callback_data="op_tramites"),
+        ],
+        [
+            InlineKeyboardButton("➕ Iniciar Trámite OS", callback_data="op_tramite_os"),
+            InlineKeyboardButton("🔄 Iniciar Trámite Backup", callback_data="op_tramite_backup"),
+        ],
+        [
+            InlineKeyboardButton("💬 Hablar libremente con IA", callback_data="op_chat"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.message:
+        await update.message.reply_text(saludo, reply_markup=reply_markup)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(saludo, reply_markup=reply_markup)
+
+async def manejar_botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await sync_to_async(connection.close_if_unusable_or_obsolete)()
+    opcion = query.data
+
+    if opcion == "op_stock":
+        res = await sync_to_async(consultar_estado_stock)()
+        await query.edit_message_text(res, parse_mode="Markdown")
+        
+    elif opcion == "op_tramites":
+        res = await sync_to_async(obtener_resumen_pedidos)()
+        await query.edit_message_text(res, parse_mode="Markdown")
+
+    elif opcion == "op_tramite_os":
+        res = await sync_to_async(iniciar_tramite_pedido)(tipo_tramite="os", cantidad=12)
+        await query.edit_message_text(res, parse_mode="Markdown")
+
+    elif opcion == "op_tramite_backup":
+        res = await sync_to_async(iniciar_tramite_pedido)(tipo_tramite="backup", cantidad=150)
+        await query.edit_message_text(res, parse_mode="Markdown")
+
+    elif opcion == "op_chat":
+        await query.edit_message_text("💬 **Modo Chat con IA Activado:**\nPodés escribirme cualquier consulta libremente.")
+
+# --- 6. ATENCIÓN DE MENSAJES Y CHAT ---
 async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    texto_usuario = update.message.text.strip()
+    texto_lower = texto_usuario.lower()
+
+    # Disparador para mostrar el menú
+    if "hola astrana" in texto_lower or texto_lower in ["/start", "/menu"]:
+        await enviar_menu_opciones(update, context, "Hola Joaco, ¿cómo te ayudo?")
+        return
+
+    # Si es texto libre, consulta a la IA con herramientas
     user_id = update.effective_user.id
     
-    if user_id not in historiales:
-        # Le pasamos un falso pasado donde la IA ya entendió el script del HTML
+    if user_id not in historiales and GEMINI_API_KEY:
         historial_forzado = [
             {
                 "role": "user", 
-                "parts": ["Hola. Soy Astrana, gestionás el stock de MedChecked mediante herramientas. Reglas estrictas:\n1. NUNCA calcules stock a mano ni inventes números.\n2. Si te pido descargar CAJAS, usá tipo_stock='stock_normal'.\n3. Si te pido descargar UNIDADES sueltas o de backup, usá tipo_stock='seguridad'.\n4. Para 'Sondas', pasale el nombre 'Sonda' a la función."]
+                "parts": ["Hola. Soy Astrana, gestionás el stock mediante herramientas. Reglas estrictas:\n1. NUNCA calcules stock a mano ni inventes números.\n2. Si te pido descargar CAJAS, usá tipo_stock='stock_normal'.\n3. Si te pido descargar UNIDADES sueltas o de backup, usá tipo_stock='seguridad'.\n4. Para 'Sondas', pasale el nombre 'Sonda' a la función."]
             },
             {
                 "role": "model", 
-                "parts": ["Entendido. Soy Astrana. Usaré las herramientas obligatoriamente. Para cajas usaré tipo_stock='stock_normal' y para unidades de seguridad usaré tipo_stock='seguridad'. No inventaré datos."]
+                "parts": ["Entendido. Soy Astrana. Usaré las herramientas obligatoriamente. Para cajas usaré tipo_stock='stock_normal' y para unidades de seguridad usaré tipo_stock='seguridad'."]
             }
         ]
         historiales[user_id] = model.start_chat(history=historial_forzado, enable_automatic_function_calling=True)
 
     try:
-        response = await asyncio.to_thread(historiales[user_id].send_message, update.message.text)
+        await sync_to_async(connection.close_if_unusable_or_obsolete)()
+        response = await asyncio.to_thread(historiales[user_id].send_message, texto_usuario)
         
         if response.text:
             await update.message.reply_text(response.text)
@@ -330,15 +371,23 @@ async def responder(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("✅ Movimiento procesado en la base de datos.")
             
     except Exception as e:
-        print(f"Error en respuesta: {e}")
-        await update.message.reply_text("⚠️ Hubo un problema de conexión. ¿Probamos de nuevo?")
+        print(f"Error en respuesta IA: {e}")
+        await update.message.reply_text("⚠️ Hubo un problema al procesar el mensaje. Probá diciendo 'Hola Astrana'.")
 
+# --- 7. PUNTO DE ENTRADA ---
+def main():
+    if not TELEGRAM_TOKEN:
+        print("❌ ERROR: No se encontró TELEGRAM_TOKEN.")
+        return
 
-if __name__ == '__main__':
     application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     
-    # Registramos solo el manejador de mensajes para responderte
+    application.add_handler(CommandHandler(["start", "menu"], responder))
+    application.add_handler(CallbackQueryHandler(manejar_botones))
     application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), responder))
     
-    print("🚀 Astrana IA activa (Modo Reactivo Puro sin bucles)...")
-    application.run_polling()
+    print("🚀 Astrana IA (Híbrido Menú + Herramientas) desplegando...")
+    application.run_polling(drop_pending_updates=True)
+
+if __name__ == '__main__':
+    main()
