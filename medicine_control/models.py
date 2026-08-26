@@ -114,3 +114,17 @@ class Envio(models.Model):
 
     def __str__(self):
         return f"{self.get_tipo_display()} - {self.get_estado_display()}"
+    # medicine_control/models.py
+
+class Pastillero(models.Model):
+    insumo = models.ForeignKey(Insumo, on_delete=models.CASCADE, related_name='tomas_pastillero')
+    fecha_hora = models.DateTimeField(default=timezone.now)
+    cantidad = models.IntegerField(default=1, help_text="Cantidad de comprimidos/unidades tomadas")
+    
+    class Meta:
+        ordering = ['-fecha_hora']
+        verbose_name = "Registro de Pastillero"
+        verbose_name_plural = "Pastillero"
+
+    def __str__(self):
+        return f"{self.insumo.nombre} - {self.cantidad} un. ({self.fecha_hora.strftime('%d/%m/%Y %H:%M')})"

@@ -3,6 +3,7 @@ from django.urls import path
 from medicine_control import views # Importamos el módulo completo para ser más ordenados
 from django.urls import path
 from medicine_control.views import cron_monitoreo_sistema
+from medicine_control.views import pastillero_view
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -14,4 +15,5 @@ urlpatterns = [
     path('iniciar-pedido/', views.iniciar_pedido, name='iniciar_pedido'), # Esta es la clave
     path('marcar-recibido/', views.marcar_recibido_home, name='marcar_recibido_home'),
     path('api/v1/sistema-monitoreo/', cron_monitoreo_sistema, name='monitoreo_sistema'),
+    path('pastillero/', pastillero_view, name='pastillero'),
 ]

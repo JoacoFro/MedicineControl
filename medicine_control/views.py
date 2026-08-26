@@ -11,7 +11,9 @@ import json
 import requests
 from django.http import JsonResponse
 from django.utils import timezone
-from .models import Insumo, Envio
+from .models import Insumo, Envio, Pastillero
+from django.contrib import messages
+from django.shortcuts import render, redirect
 import os
 
 def home(request):
@@ -325,3 +327,42 @@ def cron_monitoreo_sistema(request):
             "error": "Error interno en la ejecución del código",
             "detalle_tecnico": str(e)
         }, status=500)
+    
+    # medicine_control/views.py
+
+def pastillero_view(request):
+    if request.method == 'POST':
+        insumo_id = request.POST.get('insumo')
+        cantidad = int(request.POST.get('cantidad', 1))
+
+        try:
+            insumo = Insumo.objects.get(id=insumo_id)
+            
+            # 1. Registrar la toma en el pastillero
+            Pastillero.objects.create(
+                insumo=insumo,
+                cantidad=cantidad,
+                fecha_hora=timezone.now()
+            )
+
+            # 2. Descontar del stock disponible (backup_unidades / stock)
+            if insumo.backup_unidades >= cantidad:
+                insumo.backup_unidades -= cantidad
+            else:
+                insumo.backup_unidades = max(0, insumo.backup_unidades - cantidad)
+            insumo.save()
+
+            messages.success(request, f"✅ Toma de {insumo.nombre} registrada en el Pastillero.")
+        except Insumo.DoesNotExist:
+            messages.error(request, "❌ El medicamento/insumo seleccionado no existe.")
+        
+        return redirect('pastillero')
+
+    # GET: Cargar tomas del pastillero e insumos
+    tomas = Pastillero.objects.all()[:50]  # Muestra las últimas 50 tomas
+    insumos = Insumo.objects.all()
+
+    return render(request, 'medicine_control/pastillero.html', {
+        'tomas': tomas,
+        'insumos': insumos
+    })
