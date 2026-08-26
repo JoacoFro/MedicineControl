@@ -342,9 +342,9 @@ async def manejar_botones(update: Update, context: ContextTypes.DEFAULT_TYPE):
         res = await sync_to_async(consultar_estado_stock)()
         await query.edit_message_text(res, reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_stock_agregar":
-        await query.edit_message_text("➕ **Agregar Stock:**\nEscribime qué insumo ingresó (ejemplo: *'Ingresaron 5 cajas de sondas'*).", reply_markup=obtener_boton_volver(), parse_mode="Markdown")
+        await query.edit_message_text("➕ **Agregar Stock:**\nEscribime qué insumo ingresó (ejemplo: *'Ingresaron 2 cajas de sondas'*).", reply_markup=obtener_boton_volver(), parse_mode="Markdown")
     elif opcion == "op_stock_quitar":
-        await query.edit_message_text("➖ **Quitar Stock:**\nEscribime qué insumo retiraste (ejemplo: *'Descontar 2 paquetes de gasas'*).", reply_markup=obtener_boton_volver(), parse_mode="Markdown")
+        await query.edit_message_text("➖ **Quitar Stock:**\nEscribime qué insumo retiraste (ejemplo: *'Descontar 2 cajas de sondas'*).", reply_markup=obtener_boton_volver(), parse_mode="Markdown")
 
     # Submenú Trámites
     elif opcion == "op_tramites_estado":
