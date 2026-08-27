@@ -27,14 +27,12 @@ tailwind.config = {
         'fade-in': 'fadeIn 0.5s ease-in-out',
         'slide-up': 'slideUp 0.4s ease-out',
         'pulse-soft': 'pulseSoft 2s infinite',
-        'bounce-check': 'bounceCheck 0.6s ease-in-out',
         'scale-in': 'scaleIn 0.3s ease-out',
       },
       keyframes: {
         fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
         slideUp: { '0%': { transform: 'translateY(20px)', opacity: '0' }, '100%': { transform: 'translateY(0)', opacity: '1' } },
         pulseSoft: { '0%, 100%': { opacity: '1' }, '50%': { opacity: '0.7' } },
-        bounceCheck: { '0%': { transform: 'scale(0.3)', opacity: '0' }, '50%': { transform: 'scale(1.1)' }, '100%': { transform: 'scale(1)', opacity: '1' } },
         scaleIn: { '0%': { transform: 'scale(0.9)', opacity: '0' }, '100%': { transform: 'scale(1)', opacity: '1' } }
       }
     }
@@ -53,9 +51,6 @@ body { font-family: 'Inter', sans-serif; }
   content: ''; position: absolute; width: 12px; height: 12px; background: white;
   border-radius: 50%; left: -5px; top: 50%; transform: translateY(-50%); border: 3px solid currentColor;
 }
-.btn-taken { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
-.confetti { position: absolute; width: 8px; height: 8px; animation: confettiFall 1s ease-out forwards; }
-@keyframes confettiFall { 0% { transform: translateY(0) rotate(0deg); opacity: 1; } 100% { transform: translateY(100px) rotate(720deg); opacity: 0; } }
 </style>
 </head>
 <body class="bg-gray-50 min-h-screen pb-24">
@@ -85,63 +80,60 @@ body { font-family: 'Inter', sans-serif; }
 
   <main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
 
-    <!-- Resumen del día integrando variables de Django -->
+    <!-- Alertas/Mensajes Django -->
+    {% if messages %}
+    <div class="space-y-2">
+      {% for message in messages %}
+      <div class="p-4 rounded-xl text-sm font-medium border flex items-center gap-3 animate-fade-in
+        {% if message.tags == 'success' %}bg-green-50 text-green-700 border-green-200
+        {% elif message.tags == 'error' %}bg-red-50 text-red-700 border-red-200
+        {% else %}bg-blue-50 text-blue-700 border-blue-200{% endif %}">
+        <span>{{ message }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    <!-- Resumen -->
     <section class="bg-gradient-to-br from-health-blue-light to-white rounded-2xl p-5 card-shadow animate-slide-up">
       <div class="flex items-center justify-between mb-4">
         <div>
           <p class="text-sm text-gray-600 font-medium">Hoy, <span id="currentDate"></span></p>
           <h2 class="text-2xl font-bold text-gray-800 mt-1">Estado de Insumos</h2>
         </div>
-        <div class="text-center">
-          <div class="relative w-16 h-16">
-            <svg class="transform -rotate-90 w-16 h-16">
-              <circle cx="32" cy="32" r="28" stroke="#E5E7EB" stroke-width="6" fill="none"></circle>
-              <circle cx="32" cy="32" r="28" stroke="#10B981" stroke-width="6" fill="none" 
-                stroke-dasharray="175.93" stroke-dashoffset="44" stroke-linecap="round" class="transition-all duration-500"></circle>
-            </svg>
-            <div class="absolute inset-0 flex items-center justify-center">
-              <span class="text-lg font-bold text-gray-800">75%</span>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div class="grid grid-cols-3 gap-3 text-center">
         <div class="bg-white/60 rounded-xl p-3 backdrop-blur-sm">
-          <p class="text-2xl font-bold text-health-green">{{ insumos.count|default:"0" }}</p>
-          <p class="text-xs text-gray-600 mt-1">Registrados</p>
+          <p class="text-2xl font-bold text-health-blue">{{ insumos.count|default:"0" }}</p>
+          <p class="text-xs text-gray-600 mt-1">Insumos Registrados</p>
         </div>
         <div class="bg-white/60 rounded-xl p-3 backdrop-blur-sm">
           <p class="text-2xl font-bold text-health-yellow">{{ envios.count|default:"0" }}</p>
-          <p class="text-xs text-gray-600 mt-1">En Trámite</p>
+          <p class="text-xs text-gray-600 mt-1">Trámites en Curso</p>
         </div>
         <div class="bg-white/60 rounded-xl p-3 backdrop-blur-sm">
-          <p class="text-2xl font-bold text-health-red">{{ insumos_criticos_count|default:"0" }}</p>
-          <p class="text-xs text-gray-600 mt-1">Stock Bajo</p>
+          <p class="text-2xl font-bold text-health-green">{{ tomas.count|default:"0" }}</p>
+          <p class="text-xs text-gray-600 mt-1">Tomas Registradas</p>
         </div>
       </div>
     </section>
 
-    <!-- Mis medicamentos e insumos activos (Generación Dinámica) -->
+    <!-- Lista de Insumos y Registro de Toma -->
     <section class="space-y-3">
       <div class="flex items-center justify-between px-1">
         <h3 class="text-lg font-bold text-gray-800">Insumos y Medicación Diario</h3>
-        <button class="text-health-blue text-sm font-medium flex items-center gap-1 hover:gap-2 transition-all">
-          Ver todos <i class="fa-solid fa-chevron-right text-xs"></i>
-        </button>
       </div>
 
-      <div id="medsList" class="space-y-3">
+      <div class="space-y-3">
         {% for insumo in insumos %}
-        <!-- Card adaptada con lógica de Stock de Python -->
         <div class="bg-white rounded-2xl p-4 card-shadow card-shadow-hover transition-all duration-300 animate-scale-in border-l-4 
-                    {% if insumo.stock_actual_cajas <= 1 %}border-health-red
-                    {% elif insumo.stock_actual_cajas <= 3 %}border-health-yellow
-                    {% else %}border-health-green{% endif %}" 
-             data-status="{% if insumo.stock_actual_cajas <= 1 %}overdue{% elif insumo.stock_actual_cajas <= 3 %}pending{% else %}taken{% endif %}">
+                    {% if insumo.cajas_reales <= 1 %}border-health-red
+                    {% elif insumo.cajas_reales <= 3 %}border-health-yellow
+                    {% else %}border-health-green{% endif %}">
           <div class="flex items-start gap-4">
-            <div class="{% if insumo.stock_actual_cajas <= 1 %}bg-health-red-light text-health-red
-                        {% elif insumo.stock_actual_cajas <= 3 %}bg-health-yellow-light text-health-yellow
+            <div class="{% if insumo.cajas_reales <= 1 %}bg-health-red-light text-health-red
+                        {% elif insumo.cajas_reales <= 3 %}bg-health-yellow-light text-health-yellow
                         {% else %}bg-health-green-light text-health-green{% endif %} p-3 rounded-xl">
               <i class="fa-solid fa-capsules text-xl"></i>
             </div>
@@ -150,21 +142,21 @@ body { font-family: 'Inter', sans-serif; }
                 <div class="min-w-0">
                   <h4 class="font-semibold text-gray-800 truncate">{{ insumo.nombre }}</h4>
                   <p class="text-sm text-gray-600 mt-0.5">
-                    Stock: <strong>{{ insumo.stock_actual_cajas }} cajas</strong> ({{ insumo.unidades_por_caja }} u/caja)
+                    Stock en cajas: <strong>{{ insumo.cajas_reales }} Cajas</strong> ({{ insumo.unidades_por_caja }} u/caja)
                   </p>
                 </div>
                 
-                {% if insumo.stock_actual_cajas <= 1 %}
+                {% if insumo.cajas_reales <= 1 %}
                 <span class="px-2.5 py-1 bg-health-red-light text-health-red text-xs font-semibold rounded-full whitespace-nowrap animate-pulse-soft">
                   Reponer Urgente
                 </span>
-                {% elif insumo.stock_actual_cajas <= 3 %}
+                {% elif insumo.cajas_reales <= 3 %}
                 <span class="px-2.5 py-1 bg-health-yellow-light text-health-yellow text-xs font-semibold rounded-full whitespace-nowrap">
                   Stock Medio
                 </span>
                 {% else %}
-                <span class="px-2.5 py-1 bg-health-green-light text-health-green text-xs font-semibold rounded-full whitespace-nowrap flex items-center gap-1">
-                  <i class="fa-solid fa-circle-check text-xs"></i> Ok
+                <span class="px-2.5 py-1 bg-health-green-light text-health-green text-xs font-semibold rounded-full whitespace-nowrap">
+                  Stock Normal
                 </span>
                 {% endif %}
               </div>
@@ -180,14 +172,23 @@ body { font-family: 'Inter', sans-serif; }
                 </span>
               </div>
 
-              <button onclick="markAsTaken(this)" class="btn-taken mt-4 w-full 
-                      {% if insumo.stock_actual_cajas <= 1 %}bg-health-red hover:bg-red-600
-                      {% elif insumo.stock_actual_cajas <= 3 %}bg-health-yellow hover:bg-amber-600
-                      {% else %}bg-health-green hover:bg-emerald-600{% endif %} 
-                      text-white py-2.5 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2">
-                <i class="fa-solid fa-check"></i>
-                Registrar consumo diario (-{{ insumo.consumo_diario }} u.)
-              </button>
+              <!-- Formulario de envío POST hacia la vista de Django -->
+              <form method="POST" action="{% url 'pastillero' %}" class="mt-4 flex items-center gap-2">
+                {% csrf_token %}
+                <input type="hidden" name="insumo" value="{{ insumo.id }}">
+                
+                <div class="flex items-center border border-gray-200 rounded-xl overflow-hidden bg-gray-50">
+                  <span class="text-xs text-gray-500 px-3">Cant:</span>
+                  <input type="number" name="cantidad" min="1" max="{{ insumo.backup_unidades|default:'1' }}" value="1" 
+                         class="w-16 py-2 px-1 text-center bg-transparent border-0 font-bold text-gray-700 focus:outline-none">
+                </div>
+
+                <button type="submit" class="flex-1 bg-health-blue hover:bg-blue-700 text-white py-2.5 px-4 rounded-xl font-medium text-sm transition-all flex items-center justify-center gap-2">
+                  <i class="fa-solid fa-check"></i>
+                  Registrar Toma
+                </button>
+              </form>
+
             </div>
           </div>
         </div>
@@ -199,7 +200,39 @@ body { font-family: 'Inter', sans-serif; }
       </div>
     </section>
 
-    <!-- Próximos Envíos / Trámites Activos -->
+    <!-- Historial de Tomas Recientes -->
+    {% if tomas %}
+    <section class="bg-white rounded-2xl p-5 card-shadow animate-slide-up">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="text-lg font-bold text-gray-800">Historial de Tomas Recientes</h3>
+        <i class="fa-solid fa-clock-rotate-left text-health-blue text-lg"></i>
+      </div>
+      
+      <div class="space-y-0">
+        {% for toma in tomas %}
+        <div class="relative pl-8 pb-6">
+          {% if not forloop.last %}<div class="absolute left-0 top-0 bottom-0 w-0.5 timeline-line"></div>{% endif %}
+          <div class="timeline-dot relative text-health-blue">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h4 class="font-semibold text-gray-800">{{ toma.insumo.nombre }}</h4>
+                <p class="text-xs text-gray-500 mt-0.5">
+                  Cantidad: <span class="font-semibold text-gray-700">{{ toma.cantidad }} un.</span>
+                </p>
+                <p class="text-xs text-gray-400 mt-0.5">{{ toma.fecha_hora|date:"d/m/Y - H:i" }} hs</p>
+              </div>
+              <span class="px-2 py-1 bg-green-50 text-health-green text-xs font-semibold rounded-lg">
+                Registrado
+              </span>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    <!-- Trámites y Envíos -->
     {% if envios %}
     <section class="bg-white rounded-2xl p-5 card-shadow animate-slide-up">
       <div class="flex items-center justify-between mb-5">
@@ -214,8 +247,8 @@ body { font-family: 'Inter', sans-serif; }
           <div class="timeline-dot relative text-health-blue">
             <div class="flex items-start justify-between gap-3">
               <div>
-                <p class="text-xs text-health-blue font-semibold">CANTIDAD: {{ envio.cantidad_pedida }} u.</p>
-                <h4 class="font-semibold text-gray-800 mt-1">Trámite de Envió</h4>
+                <p class="text-xs text-health-blue font-semibold">CANTIDAD: {{ envio.cantidad }} u.</p>
+                <h4 class="font-semibold text-gray-800 mt-1">Trámite / Envío</h4>
                 <p class="text-sm text-gray-600">Estado: {% if envio.recibido %}Completado{% else %}En camino{% endif %}</p>
               </div>
               <i class="fa-solid fa-box text-health-blue"></i>
@@ -229,127 +262,31 @@ body { font-family: 'Inter', sans-serif; }
 
   </main>
 
-  <!-- Botón Flotante para Agregar -->
-  <button onclick="openAddModal()" class="fixed bottom-24 right-4 md:bottom-28 md:right-8 w-14 h-14 gradient-bg text-white rounded-full shadow-xl hover:shadow-2xl transition-all duration-300 flex items-center justify-center group z-40 hover:scale-110">
-    <i class="fa-solid fa-plus text-xl group-hover:rotate-90 transition-transform duration-300"></i>
-  </button>
-
   <!-- Navigation Bar Inferior -->
   <nav class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50">
     <div class="max-w-4xl mx-auto px-4">
       <div class="flex items-center justify-around py-3">
-        <button class="nav-btn flex flex-col items-center gap-1 text-health-blue" data-page="inicio">
+        <a href="{% url 'pastillero' %}" class="nav-btn flex flex-col items-center gap-1 text-health-blue">
           <div class="p-2 bg-health-blue-light rounded-xl">
-            <i class="fa-solid fa-house text-lg"></i>
+            <i class="fa-solid fa-pills text-lg"></i>
           </div>
-          <span class="text-xs font-semibold">Inicio</span>
-        </button>
-        
+          <span class="text-xs font-semibold">Pastillero</span>
+        </a>
+
         <a href="/cargar/" class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-health-blue transition-colors">
           <div class="p-2 rounded-xl">
             <i class="fa-solid fa-box-archive text-lg"></i>
           </div>
           <span class="text-xs font-medium">Ingresos</span>
         </a>
-
-        <button class="nav-btn flex flex-col items-center gap-1 text-gray-400 hover:text-health-blue transition-colors" data-page="perfil">
-          <div class="p-2 rounded-xl">
-            <i class="fa-regular fa-user text-lg"></i>
-          </div>
-          <span class="text-xs font-medium">Perfil</span>
-        </button>
       </div>
     </div>
   </nav>
 
-  <!-- Toast Notification -->
-  <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-6 py-3 rounded-full shadow-2xl opacity-0 transition-all duration-300 pointer-events-none z-[60] flex items-center gap-2">
-    <i class="fa-solid fa-circle-check text-health-green"></i>
-    <span id="toastMessage"></span>
-  </div>
-
-  <!-- Modal Agregar Insumo -->
-  <div id="addModal" class="fixed inset-0 bg-black/50 backdrop-blur-sm z-[70] hidden items-center justify-center p-4">
-    <div class="bg-white rounded-3xl w-full max-w-md p-6 animate-scale-in">
-      <div class="flex items-center justify-between mb-6">
-        <h3 class="text-xl font-bold text-gray-800">Cargar Insumo o Pedido</h3>
-        <button onclick="closeAddModal()" class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center hover:bg-gray-200 transition-colors">
-          <i class="fa-solid fa-xmark"></i>
-        </button>
-      </div>
-      <p class="text-sm text-gray-600 mb-4">Ingresá a la sección de altas para añadir cajas o trámites nuevos a MedChecked.</p>
-      <a href="/cargar/" class="block text-center w-full gradient-bg text-white py-3 rounded-xl font-semibold">
-        Ir a formulario de carga
-      </a>
-    </div>
-  </div>
-
 <script>
-  // Fecha actual
   const options = { weekday: 'long', day: 'numeric', month: 'long' };
   const today = new Date().toLocaleDateString('es-ES', options);
   document.getElementById('currentDate').textContent = today.charAt(0).toUpperCase() + today.slice(1);
-
-  // Marcar como tomada / consumo registrado
-  function markAsTaken(btn) {
-    const card = btn.closest('[data-status]');
-    
-    // Animación del botón
-    btn.style.transform = 'scale(0.95)';
-    setTimeout(() => { btn.style.transform = 'scale(1)'; }, 100);
-    
-    // Confetti effect
-    createConfetti(btn);
-    
-    // Toast
-    const medName = card.querySelector('h4').textContent;
-    showToast(`Consumo de ${medName} registrado`);
-  }
-
-  function createConfetti(element) {
-    const rect = element.getBoundingClientRect();
-    const colors = ['#10B981', '#2563EB', '#F59E0B', '#EF4444', '#8B5CF6'];
-    
-    for (let i = 0; i < 20; i++) {
-      const confetti = document.createElement('div');
-      confetti.className = 'confetti';
-      confetti.style.left = (rect.left + rect.width / 2 + (Math.random() - 0.5) * 100) + 'px';
-      confetti.style.top = rect.top + 'px';
-      confetti.style.background = colors[Math.floor(Math.random() * colors.length)];
-      confetti.style.animationDelay = Math.random() * 0.2 + 's';
-      document.body.appendChild(confetti);
-      
-      setTimeout(() => confetti.remove(), 1000);
-    }
-  }
-
-  function showToast(message) {
-    const toast = document.getElementById('toast');
-    document.getElementById('toastMessage').textContent = message;
-    toast.classList.remove('opacity-0', '-translate-y-4');
-    toast.classList.add('opacity-100');
-    
-    setTimeout(() => {
-      toast.classList.add('opacity-0', '-translate-y-4');
-      toast.classList.remove('opacity-100');
-    }, 3000);
-  }
-
-  // Modal handlers
-  function openAddModal() {
-    document.getElementById('addModal').classList.remove('hidden');
-    document.getElementById('addModal').classList.add('flex');
-  }
-
-  function closeAddModal() {
-    document.getElementById('addModal').classList.add('hidden');
-    document.getElementById('addModal').classList.remove('flex');
-  }
-
-  // Cerrar modal con click fuera
-  document.getElementById('addModal').addEventListener('click', function(e) {
-    if (e.target === this) closeAddModal();
-  });
 </script>
 </body>
 </html>
