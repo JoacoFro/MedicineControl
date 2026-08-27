@@ -14,6 +14,7 @@ from django.utils import timezone
 from .models import Insumo, Envio, Pastillero
 from django.contrib import messages
 from django.shortcuts import render, redirect
+from medicine_control.models import Insumo, Envio
 import os
 
 def home(request):
@@ -338,14 +339,14 @@ def pastillero_view(request):
         try:
             insumo = Insumo.objects.get(id=insumo_id)
             
-            # 1. Registrar la toma en el pastillero
+            # 1. Registrar la toma en la tabla Pastillero
             Pastillero.objects.create(
                 insumo=insumo,
                 cantidad=cantidad,
                 fecha_hora=timezone.now()
             )
 
-            # 2. Descontar del stock disponible (backup_unidades / stock)
+            # 2. Descontar del stock disponible (backup_unidades)
             if insumo.backup_unidades >= cantidad:
                 insumo.backup_unidades -= cantidad
             else:
@@ -358,11 +359,13 @@ def pastillero_view(request):
         
         return redirect('pastillero')
 
-    # GET: Cargar tomas del pastillero e insumos
-    tomas = Pastillero.objects.all()[:50]  # Muestra las últimas 50 tomas
+    # GET: Cargar tomas, insumos y envíos
+    tomas = Pastillero.objects.all().order_by('-fecha_hora')[:50]  # Muestra las últimas 50 tomas ordenadas
     insumos = Insumo.objects.all()
+    envios = Envio.objects.filter(recibido=False)
 
     return render(request, 'medicine_control/pastillero.html', {
         'tomas': tomas,
-        'insumos': insumos
+        'insumos': insumos,
+        'envios': envios
     })
