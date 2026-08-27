@@ -15,5 +15,5 @@ urlpatterns = [
     path('iniciar-pedido/', views.iniciar_pedido, name='iniciar_pedido'), # Esta es la clave
     path('marcar-recibido/', views.marcar_recibido_home, name='marcar_recibido_home'),
     path('api/v1/sistema-monitoreo/', cron_monitoreo_sistema, name='monitoreo_sistema'),
-    path('pastillero/', pastillero_view, name='pastillero'),
+path('pastillero/', views.pastillero_view, name='pastillero'),
 ]

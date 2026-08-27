@@ -14,7 +14,6 @@ from django.utils import timezone
 from .models import Insumo, Envio, Pastillero
 from django.contrib import messages
 from django.shortcuts import render, redirect
-from medicine_control.models import Insumo, Envio
 import os
 
 def home(request):
@@ -332,40 +331,32 @@ def cron_monitoreo_sistema(request):
     # medicine_control/views.py
 
 def pastillero_view(request):
-    if request.method == 'POST':
-        insumo_id = request.POST.get('insumo')
-        cantidad = int(request.POST.get('cantidad', 1))
-
+    if request.method == "POST":
+        insumo_id = request.POST.get("insumo")
+        cantidad = int(request.POST.get("cantidad", 1))
+        
         try:
             insumo = Insumo.objects.get(id=insumo_id)
-            
-            # 1. Registrar la toma en la tabla Pastillero
+            # Guardas directamente en la tabla Pastillero
             Pastillero.objects.create(
-                insumo=insumo,
-                cantidad=cantidad,
-                fecha_hora=timezone.now()
+                insumo=insumo, 
+                cantidad=cantidad
             )
-
-            # 2. Descontar del stock disponible (backup_unidades)
-            if insumo.backup_unidades >= cantidad:
-                insumo.backup_unidades -= cantidad
-            else:
-                insumo.backup_unidades = max(0, insumo.backup_unidades - cantidad)
-            insumo.save()
-
-            messages.success(request, f"✅ Toma de {insumo.nombre} registrada en el Pastillero.")
-        except Insumo.DoesNotExist:
-            messages.error(request, "❌ El medicamento/insumo seleccionado no existe.")
-        
+            messages.success(request, f"Se registró el consumo de {cantidad} un. de {insumo.nombre}.")
+        except Exception as e:
+            messages.error(request, f"Error al registrar la toma: {str(e)}")
+            
         return redirect('pastillero')
 
-    # GET: Cargar tomas, insumos y envíos
-    tomas = Pastillero.objects.all().order_by('-fecha_hora')[:50]  # Muestra las últimas 50 tomas ordenadas
+    # Consultas para renderizar la página
     insumos = Insumo.objects.all()
-    envios = Envio.objects.filter(recibido=False)
+    envios = Envio.objects.all()
+    # Mapeas las instancias de Pastillero a la variable 'tomas' que espera el HTML
+    tomas = Pastillero.objects.select_related('insumo').all()[:10]
 
-    return render(request, 'medicine_control/pastillero.html', {
-        'tomas': tomas,
+    context = {
         'insumos': insumos,
-        'envios': envios
-    })
+        'envios': envios,
+        'tomas': tomas,  # <--- Aquí la plantilla recibe tu modelo Pastillero
+    }
+    return render(request, 'pastillero.html', context)
